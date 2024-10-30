@@ -1,0 +1,38 @@
+{
+  "name": "veramo-agent",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "type": "module",
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "typescript": "5.3.3"
+  },
+  "scripts": {
+    "start": "node --loader ts-node/esm ./src/index.ts",
+    "l-i": "node --loader ts-node/esm ./src/list-identifiers.ts",
+    "c-i": "node --loader ts-node/esm ./src/create-identifier.ts",
+    "c-c": "node --loader ts-node/esm ./src/create-credential.ts",
+    "v-c": "node --loader ts-node/esm ./src/verify-credential.ts",
+    "g-c": "node --loader ts-node/esm ./src/get-credential.ts"
+  },
+  "dependencies": {
+    "@veramo/cli": "^6.0.0",
+    "@veramo/core": "^6.0.0",
+    "@veramo/credential-ld": "^6.0.0",
+    "@veramo/credential-w3c": "^6.0.0",
+    "@veramo/data-store": "^6.0.0",
+    "@veramo/did-manager": "^6.0.0",
+    "@veramo/did-provider-ethr": "^6.0.0",
+    "@veramo/did-provider-ion": "^6.0.0",
+    "@veramo/did-resolver": "^6.0.0",
+    "@veramo/key-manager": "^6.0.0",
+    "@veramo/kms-local": "^6.0.0",
+    "@veramo/selective-disclosure": "^6.0.0",
+    "ethr-did-resolver": "^11.0.2",
+    "sqlite3": "^5.1.7",
+    "typeorm": "^0.3.20",
+    "uuid": "^11.0.2",
+    "web-did-resolver": "^2.0.27"
+  }
+}
