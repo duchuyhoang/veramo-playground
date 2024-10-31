@@ -1,6 +1,5 @@
 import {
   IAgentPlugin,
-  IDataStore,
   IDataStoreDeleteVerifiableCredentialArgs,
   IDataStoreGetMessageArgs,
   IDataStoreDeleteMessageArgs,
@@ -12,15 +11,107 @@ import {
   IMessage,
   VerifiableCredential,
   VerifiablePresentation,
-} from '@veramo/core-types'
-import { schema } from '@veramo/core-types'
-import { Message, Presentation, Claim } from '@veramo/data-store';
-import { createMessage, createMessageEntity } from '../entities/message'
-import { createCredentialEntity, Credential } from '../entities/credential'
-import { createPresentationEntity } from '../entities/presentation'
-import { DataSource } from 'typeorm'
-import { OrPromise } from '@veramo/utils'
+} from '@veramo/core-types';
+import { schema } from '@veramo/core-types';
+import { Message, Presentation } from '@veramo/data-store';
+import { OrPromise } from '@veramo/utils';
+import { IPluginMethodMap } from '@veramo/core';
+import { DataSource } from 'typeorm';
+
+import { createMessage, createMessageEntity } from '../entities/message';
+import { createCredentialEntity, Credential } from '../entities/credential';
+import { Claim } from '../entities/claim';
+import { createPresentationEntity } from '../entities/presentation';
 import { getConnectedDb } from '../data-storage/utils';
+
+interface IGetVerifiableCredentialRequest {
+  credentialId: string;
+}
+
+interface IStoreVerifiableCredentialRequest {
+  verifiableCredential: VerifiableCredential;
+}
+
+interface IStoreVerifiableCredentialResponse {
+  id: string;
+  hash: string;
+  issuerId: string;
+}
+
+interface IDeleteVerifiableCredentialRequest {
+  credentialId: string;
+}
+
+
+export interface IDataStore extends IPluginMethodMap {
+  getVerifiableCredential: (request: IGetVerifiableCredentialRequest) =>
+    Promise<VerifiableCredential>;
+
+  storeVerifiableCredential: (request: IStoreVerifiableCredentialRequest) =>
+    Promise<IStoreVerifiableCredentialResponse>;
+
+  deleteVerifiableCredential: (request: IDeleteVerifiableCredentialRequest) =>
+    Promise<boolean>
+
+  // /**
+  //  * Saves message to the data store
+  //  * @param args - message
+  //  * @returns a promise that resolves to the id of the message
+  //  */
+  // dataStoreSaveMessage(args: IDataStoreSaveMessageArgs): Promise<string>
+
+  // /**
+  //  * Gets message from the data store
+  //  * @param args - arguments for getting message
+  //  * @returns a promise that resolves to the message
+  //  */
+  // dataStoreGetMessage(args: IDataStoreGetMessageArgs): Promise<IMessage>
+
+  // /**
+  //  * Deletes message from the data store
+  //  * @param args - arguments for deleting message
+  //  * @returns a promise that resolves to a boolean
+  //  */
+  // dataStoreDeleteMessage(args: IDataStoreDeleteMessageArgs): Promise<boolean>
+
+  // /**
+  //  * Saves verifiable credential to the data store
+  //  * @param args - verifiable credential
+  //  * @returns a promise that resolves to the hash of the VerifiableCredential
+  //  */
+  // dataStoreSaveVerifiableCredential(args: IDataStoreSaveVerifiableCredentialArgs): Promise<string>
+
+  // /**
+  //  * Deletes verifiable credential from the data store
+  //  * @param args - verifiable credential
+  //  * @returns a promise that resolves to a boolean
+  //  */
+  // dataStoreDeleteVerifiableCredential(args: IDataStoreDeleteVerifiableCredentialArgs): Promise<boolean>
+
+  // /**
+  //  * Gets verifiable credential from the data store
+  //  * @param args - arguments for getting verifiable credential
+  //  * @returns a promise that resolves to the verifiable credential
+  //  */
+  // dataStoreGetVerifiableCredential(args: IDataStoreGetVerifiableCredentialArgs): Promise<VerifiableCredential>
+
+  // /**
+  //  * Saves verifiable presentation to the data store
+  //  * @param args - verifiable presentation
+  //  * @returns a promise that resolves to the hash of the VerifiablePresentation
+  //  */
+  // dataStoreSaveVerifiablePresentation(args: IDataStoreSaveVerifiablePresentationArgs): Promise<string>
+
+  // /**
+  //  * Gets verifiable presentation from the data store
+  //  * @param args - arguments for getting Verifiable Presentation
+  //  * @returns a promise that resolves to the Verifiable Presentation
+  //  */
+  // dataStoreGetVerifiablePresentation(
+  //   args: IDataStoreGetVerifiablePresentationArgs,
+  // ): Promise<VerifiablePresentation>
+}
+
 
 export class DataStorageAgentPlugin implements IAgentPlugin {
   readonly methods: IDataStore
@@ -31,15 +122,66 @@ export class DataStorageAgentPlugin implements IAgentPlugin {
     this.dbConnection = dbConnection
 
     this.methods = {
-      dataStoreSaveMessage: this.dataStoreSaveMessage.bind(this),
-      dataStoreGetMessage: this.dataStoreGetMessage.bind(this),
-      dataStoreDeleteMessage: this.dataStoreDeleteMessage.bind(this),
-      dataStoreDeleteVerifiableCredential: this.dataStoreDeleteVerifiableCredential.bind(this),
-      dataStoreSaveVerifiableCredential: this.dataStoreSaveVerifiableCredential.bind(this),
-      dataStoreGetVerifiableCredential: this.dataStoreGetVerifiableCredential.bind(this),
-      dataStoreSaveVerifiablePresentation: this.dataStoreSaveVerifiablePresentation.bind(this),
-      dataStoreGetVerifiablePresentation: this.dataStoreGetVerifiablePresentation.bind(this),
+      getVerifiableCredential: this.getVerifiableCredential.bind(this),
+      storeVerifiableCredential: this.storeVerifiableCredential.bind(this),
+      deleteVerifiableCredential: this.deleteVerifiableCredential.bind(this),
+      // dataStoreSaveMessage: this.dataStoreSaveMessage.bind(this),
+      // dataStoreGetMessage: this.dataStoreGetMessage.bind(this),
+      // dataStoreDeleteMessage: this.dataStoreDeleteMessage.bind(this),
+      // dataStoreDeleteVerifiableCredential: this.dataStoreDeleteVerifiableCredential.bind(this),
+      // dataStoreSaveVerifiableCredential: this.dataStoreSaveVerifiableCredential.bind(this),
+      // dataStoreGetVerifiableCredential: this.dataStoreGetVerifiableCredential.bind(this),
+      // dataStoreSaveVerifiablePresentation: this.dataStoreSaveVerifiablePresentation.bind(this),
+      // dataStoreGetVerifiablePresentation: this.dataStoreGetVerifiablePresentation.bind(this),
     }
+  }
+
+  async getVerifiableCredential(
+    request: IGetVerifiableCredentialRequest
+  ): Promise<VerifiableCredential> {
+    const credentialEntity = await (await getConnectedDb(this.dbConnection))
+      .getRepository(Credential)
+      .findOneBy({ id: request.credentialId });
+    if (!credentialEntity) throw new Error('not_found: Verifiable credential not found')
+
+    return credentialEntity.raw;
+  }
+
+  async storeVerifiableCredential(
+    request: IStoreVerifiableCredentialRequest,
+  ): Promise<IStoreVerifiableCredentialResponse> {
+    const connection = await getConnectedDb(this.dbConnection);
+    const verifiableCredential = await connection
+      .getRepository(Credential)
+      .save(createCredentialEntity(request.verifiableCredential));
+    return {
+      id: verifiableCredential.id || '',
+      hash: verifiableCredential.hash,
+      issuerId: verifiableCredential.issuer.did,
+    };
+  }
+
+  async deleteVerifiableCredential(
+    request: IDeleteVerifiableCredentialRequest
+  ): Promise<boolean> {
+    const connection = await getConnectedDb(this.dbConnection);
+    const verifiableCredential = await connection
+      .getRepository(Credential)
+      .findOne({ where: { id: request.credentialId }, select: ['hash'] });
+    if (!verifiableCredential) {
+      throw new Error('Credential not found');
+    }
+
+    await Promise.all([
+      (await getConnectedDb(this.dbConnection))
+        .getRepository(Claim)
+        .delete({ credential: { hash: verifiableCredential.hash } }),
+      (await getConnectedDb(this.dbConnection))
+        .getRepository(Credential)
+        .delete(verifiableCredential.hash),
+    ]);
+
+    return true;
   }
 
   async dataStoreSaveMessage(args: IDataStoreSaveMessageArgs): Promise<string> {

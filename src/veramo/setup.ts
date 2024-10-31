@@ -4,7 +4,6 @@ import {
   createAgent,
   IDIDManager,
   IResolver,
-  IDataStore,
   IDataStoreORM,
   IKeyManager,
   ICredentialPlugin,
@@ -34,12 +33,15 @@ import { CredentialStatusPlugin } from '@veramo/credential-status';
 // TypeORM is installed with `@veramo/data-store`
 import { DataSource } from 'typeorm'
 
+import { DataStorageAgentPlugin, IDataStore } from './plugins/data-storage-agent.ts';
 import { EnhancedAgentPlugin, IEnhancedAgentPlugin } from './plugins/enhanced-agent';
 // import { DataStorageAgentPlugin } from './plugins/data-storage-agent.ts';
 
 import { DIDStore } from './data-storage/did-store.ts';
 import { KeyStore } from './data-storage/key-store.ts';
 import { PrivateKeyStore } from './data-storage/private-key-store.ts';
+
+import { checkCredentialRevocation } from './lib/status-validator.ts';
 
 import { Key } from './entities/key';
 import { Identifier } from './entities/identifier';
@@ -50,7 +52,6 @@ import { Service } from './entities/service';
 import { PrivateKey } from './entities/private-key';
 import { PreMigrationKey } from './entities/pre-migration-key';
 import { Credential } from './entities/credential.ts';
-import { DataStorageAgentPlugin } from './plugins/data-storage-agent.ts';
 
 // ========= ENV =========
 // This will be the name for the local sqlite database for demo purposes
@@ -82,7 +83,7 @@ const dbConnection = new DataSource({
   // migrations,
   // migrationsRun: true,
   // logging: ['error', 'info', 'warn'],
-  logging: true,
+  // logging: true,
   entities,
 }).initialize();
 
@@ -136,13 +137,7 @@ export const agent = createAgent<
     new CredentialPlugin(),
     new SelectiveDisclosure(),
     new CredentialStatusPlugin({
-      RevocationList2020Status: async (credential, didDocument) => {
-        console.log('RevocationList2020Status', didDocument);
-        // -- TODO -- check revocation
-        return {
-          revoked: true,
-        };
-      },
+      RevocationList2020Status: checkCredentialRevocation.bind(this, dbConnection),
     }),
     new EnhancedAgentPlugin({ dbConnection }),
   ],

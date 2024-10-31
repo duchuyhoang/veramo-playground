@@ -49,7 +49,7 @@ export class Credential extends BaseEntity {
   // @ts-ignore
   subject: Relation<Identifier>;
 
-  @Column({ type: 'varchar' })
+  @Column({ type: 'varchar', unique: true })
   // @ts-ignore
   id?: string;
 

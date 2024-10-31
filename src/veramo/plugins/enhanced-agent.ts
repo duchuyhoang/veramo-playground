@@ -41,10 +41,11 @@ import {
   OrPromise,
 } from '@veramo/utils'
 import { v4 as uuidv4 } from 'uuid';
-import { DataSource } from "typeorm";
+import { DataSource } from 'typeorm';
 
+import { getConnectedDb } from '../data-storage/utils.ts';
 import { JsonSchemaValidator } from '../lib/json-schema-validator.ts';
-import { createCredentialEntity, Credential } from "../entities/credential";
+import { Credential } from '../entities/credential';
 
 const byteEncoder = new TextEncoder();
 
@@ -141,16 +142,6 @@ async function isRevoked(
   )
 }
 
-async function getConnectedDb(dbConnection: OrPromise<DataSource>): Promise<DataSource> {
-  if (dbConnection instanceof Promise) {
-    return await dbConnection
-  }
-  if (!dbConnection.isInitialized) {
-    return await (<DataSource>dbConnection).initialize();
-  }
-  return dbConnection;
-}
-
 type IssuerType = { id: string;[x: string]: any }
 type CredentialSubject = {
   [x: string]: any
@@ -195,15 +186,6 @@ interface IVerifyCredentialRequest {
   resolutionOptions?: DIDResolutionOptions;
 }
 
-interface IStoreVerifiableCredentialRequest {
-  verifiableCredential: VerifiableCredential;
-}
-
-interface IStoreVerifiableCredentialResponse {
-  id: string;
-  hash: string;
-}
-
 export interface IEnhancedAgentPlugin extends IPluginMethodMap {
   issueVerifiableCredential: (
     request: IIssueCredentialRequest,
@@ -217,10 +199,6 @@ export interface IEnhancedAgentPlugin extends IPluginMethodMap {
     request: IVerifyCredentialRequest,
     context: IAgentContext<ICredentialPlugin>,
   ) => Promise<IVerifyResult>;
-  storeVerifiableCredential: (
-    request: IStoreVerifiableCredentialRequest,
-    context: IAgentContext<ICredentialPlugin>,
-  ) => Promise<IStoreVerifiableCredentialResponse>;
   // createVP: (
   //   args: ICreateVerifiablePresentationArgs,
   //   context: IssuerAgentContext,
@@ -242,7 +220,6 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
       issueVerifiableCredential: this.issueVerifiableCredential.bind(this),
       revokeVerifiableCredential: this.revokeVerifiableCredential.bind(this),
       verifyVerifiableCredential: this.verifyVerifiableCredential.bind(this),
-      storeVerifiableCredential: this.storeVerifiableCredential.bind(this),
       // createVP: this.createVerifiablePresentation.bind(this),
       // verifyVC: this.verifyCredential.bind(this),
       // verifyVP: this.verifyPresentation.bind(this),
@@ -308,11 +285,39 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     request: IRevokeCredentialRequest,
     context: IAgentContext<ICredentialPlugin>,
   ): Promise<IRevocationResult> {
-    // -- TODO -- find, validate & update revokedAt
-    return {
-      revoked: false,
-      error: 'Fail',
-    };
+    const connection = await getConnectedDb(this.dbConnection);
+    const repository = connection.getRepository(Credential);
+    const verifiableCredential = await repository.findOne({
+      where: {
+        id: request.credentialId,
+        issuer: { did: request.issuerDID },
+      },
+      select: ['hash', 'id', 'expirationDate', 'revoked']
+    });
+
+    if (!verifiableCredential) {
+      return {
+        revoked: false,
+        error: 'Credential not found',
+      };
+    }
+
+    if (verifiableCredential.revoked) {
+      return {
+        revoked: false,
+        error: 'Credential has been revoked',
+      };
+    }
+
+    if (verifiableCredential.expirationDate && verifiableCredential.expirationDate.getTime() < new Date().getTime()) {
+      return {
+        revoked: false,
+        error: 'Credential has been expired',
+      };
+    }
+
+    await repository.update(verifiableCredential.hash, { revoked: true, revokedAt: new Date() });
+    return { revoked: true };
   }
 
   public async verifyVerifiableCredential(
@@ -440,20 +445,6 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     }
 
     return verificationResult;
-  }
-
-  public async storeVerifiableCredential(
-    request: IStoreVerifiableCredentialRequest,
-    context: IAgentContext<ICredentialPlugin>,
-  ): Promise<IStoreVerifiableCredentialResponse> {
-    const connection = await getConnectedDb(this.dbConnection);
-    const verifiableCredential = await connection
-      .getRepository(Credential)
-      .save(createCredentialEntity(request.verifiableCredential));
-    return {
-      id: verifiableCredential.id || '',
-      hash: verifiableCredential.hash,
-    };
   }
 
   async createVerifiablePresentation(
