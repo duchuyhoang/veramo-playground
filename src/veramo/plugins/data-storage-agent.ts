@@ -16,13 +16,18 @@ import { schema } from '@veramo/core-types';
 import { Message, Presentation } from '@veramo/data-store';
 import { OrPromise } from '@veramo/utils';
 import { IPluginMethodMap } from '@veramo/core';
-import { DataSource } from 'typeorm';
+import { DataSource, In, IsNull, MoreThan } from 'typeorm';
 
+import { getConnectedDb } from '../data-storage/utils';
 import { createMessage, createMessageEntity } from '../entities/message';
 import { createCredentialEntity, Credential } from '../entities/credential';
 import { Claim } from '../entities/claim';
 import { createPresentationEntity } from '../entities/presentation';
-import { getConnectedDb } from '../data-storage/utils';
+
+interface IGetVerifiableCredentialsRequest {
+  credentialIds: string[];
+  holder?: string;
+}
 
 interface IGetVerifiableCredentialRequest {
   credentialId: string;
@@ -44,6 +49,9 @@ interface IDeleteVerifiableCredentialRequest {
 
 
 export interface IDataStore extends IPluginMethodMap {
+  getVerifiableCredentials: (request: IGetVerifiableCredentialsRequest) =>
+    Promise<VerifiableCredential[]>;
+
   getVerifiableCredential: (request: IGetVerifiableCredentialRequest) =>
     Promise<VerifiableCredential>;
 
@@ -122,6 +130,7 @@ export class DataStorageAgentPlugin implements IAgentPlugin {
     this.dbConnection = dbConnection
 
     this.methods = {
+      getVerifiableCredentials: this.getVerifiableCredentials.bind(this),
       getVerifiableCredential: this.getVerifiableCredential.bind(this),
       storeVerifiableCredential: this.storeVerifiableCredential.bind(this),
       deleteVerifiableCredential: this.deleteVerifiableCredential.bind(this),
@@ -134,6 +143,30 @@ export class DataStorageAgentPlugin implements IAgentPlugin {
       // dataStoreSaveVerifiablePresentation: this.dataStoreSaveVerifiablePresentation.bind(this),
       // dataStoreGetVerifiablePresentation: this.dataStoreGetVerifiablePresentation.bind(this),
     }
+  }
+
+  async getVerifiableCredentials(
+    request: IGetVerifiableCredentialsRequest
+  ): Promise<VerifiableCredential[]> {
+    const { credentialIds, holder } = request;
+    const commonQuery = {
+      id: In(credentialIds),
+      revoked: false,
+      subject: holder ? { did: holder } : undefined
+    };
+    const credentialEntities = await (await getConnectedDb(this.dbConnection))
+      .getRepository(Credential)
+      .find({
+        where: [
+          { ...commonQuery, expirationDate: MoreThan(new Date()) },
+          { ...commonQuery, expirationDate: IsNull() },
+        ],
+      });
+    if (credentialEntities.length !== credentialIds.length) {
+      throw new Error('not_found or revoked: Verifiable credentials not found or revoked');
+    }
+
+    return credentialEntities.map((credentialEntity) => credentialEntity.raw);
   }
 
   async getVerifiableCredential(

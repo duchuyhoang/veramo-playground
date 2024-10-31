@@ -9,13 +9,6 @@ import { agent } from './veramo/setup.ts'
 
 //   createPresentationRequest(request): Promise<Buffer | GenericResult>; // For now only Buffer
 
-
-//   issueVerifiablePresentation(presentation): Promise<VerifiablePresentation>;
-
-
-//   verifyVerifiablePresentation(presentation): Promise<GenericResult>;
-
-
 //   presentPresentation(request): Promise<GenericResult>;
 // }
 
@@ -64,6 +57,17 @@ async function verifyCredential(credentialId: string) {
 }
 
 async function main() {
+  const presentation = await agent.issueVerifiablePresentation({
+    holder: 'did:ethr:sepolia:0x03c2c98567c066f6cd38cf0ce8856849f2d99d3ce98ee4364f1f7ff56baa156ef8',
+    credentialIds: ['601e664d-e9ab-4f48-95de-963a17466a84', '6e40131c-c202-4d14-80ad-f0c4bf67f431'],
+  });
+
+  const res = await agent.verifyVerifiablePresentation({
+    presentation
+  });
+  console.log('res', res);
+  
+  
   // const credential = await issueVC();
   // const record = await agent.storeVerifiableCredential({
   //   verifiableCredential: credential,

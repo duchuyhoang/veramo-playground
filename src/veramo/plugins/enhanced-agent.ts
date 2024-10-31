@@ -5,16 +5,15 @@ import {
   DIDResolutionOptions,
   IAgentContext,
   IAgentPlugin,
-  ICreateVerifiablePresentationArgs,
   ICredentialPlugin,
   ICredentialStatusVerifier,
   IIdentifier,
   IKey,
   IKeyManager,
   IPluginMethodMap,
-  IssuerAgentContext,
   IVerifyPresentationArgs,
   IVerifyResult,
+  PresentationPayload,
   ProofFormat,
   VerifiableCredential,
   VerifiablePresentation,
@@ -26,16 +25,12 @@ import {
 import { Resolvable } from 'did-resolver'
 import canonicalize from 'canonicalize'
 import {
-  createVerifiablePresentationJwt,
-  normalizePresentation,
   verifyCredential as verifyCredentialJWT,
   verifyPresentation as verifyPresentationJWT,
 } from 'did-jwt-vc'
 import { decodeJWT, } from 'did-jwt'
 import {
   asArray,
-  removeDIDParameters,
-  isDefined,
   MANDATORY_CREDENTIAL_CONTEXT,
   processEntryToArray,
   OrPromise,
@@ -186,6 +181,12 @@ interface IVerifyCredentialRequest {
   resolutionOptions?: DIDResolutionOptions;
 }
 
+interface IIssueVerifiablePresentation {
+  holder: string;
+  credentialIds: string[];
+  proofFormat?: ProofFormat;
+}
+
 export interface IEnhancedAgentPlugin extends IPluginMethodMap {
   issueVerifiableCredential: (
     request: IIssueCredentialRequest,
@@ -199,14 +200,14 @@ export interface IEnhancedAgentPlugin extends IPluginMethodMap {
     request: IVerifyCredentialRequest,
     context: IAgentContext<ICredentialPlugin>,
   ) => Promise<IVerifyResult>;
-  // createVP: (
-  //   args: ICreateVerifiablePresentationArgs,
-  //   context: IssuerAgentContext,
-  // ) => Promise<VerifiablePresentation>;
-  // verifyVP: (
-  //   payload: IVerifyPresentationArgs,
-  //   context: VerifierAgentContext,
-  // ) => Promise<IVerifyResult>;
+  issueVerifiablePresentation: (
+    request: IIssueVerifiablePresentation,
+    context: IAgentContext<ICredentialPlugin>,
+  ) => Promise<VerifiablePresentation>;
+  verifyVerifiablePresentation: (
+    request: IVerifyPresentationArgs,
+    context: VerifierAgentContext,
+  ) => Promise<IVerifyResult>;
 }
 
 export class EnhancedAgentPlugin implements IAgentPlugin {
@@ -220,9 +221,8 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
       issueVerifiableCredential: this.issueVerifiableCredential.bind(this),
       revokeVerifiableCredential: this.revokeVerifiableCredential.bind(this),
       verifyVerifiableCredential: this.verifyVerifiableCredential.bind(this),
-      // createVP: this.createVerifiablePresentation.bind(this),
-      // verifyVC: this.verifyCredential.bind(this),
-      // verifyVP: this.verifyPresentation.bind(this),
+      issueVerifiablePresentation: this.issueVerifiablePresentation.bind(this),
+      verifyVerifiablePresentation: this.verifyVerifiablePresentation.bind(this),
     };
   }
 
@@ -447,109 +447,47 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     return verificationResult;
   }
 
-  async createVerifiablePresentation(
-    args: ICreateVerifiablePresentationArgs,
-    context: IssuerAgentContext,
+  async issueVerifiablePresentation(
+    request: IIssueVerifiablePresentation,
+    context: IAgentContext<ICredentialPlugin>,
   ): Promise<VerifiablePresentation> {
-    let {
-      presentation,
-      proofFormat,
-      domain,
-      challenge,
-      removeOriginalFields,
-      keyRef,
-      // save,
-      now,
-      ...otherOptions
-    } = args
-    const presentationContext: string[] = processEntryToArray(
-      args?.presentation?.['@context'],
-      MANDATORY_CREDENTIAL_CONTEXT,
-    )
-    const presentationType = processEntryToArray(args?.presentation?.type, 'VerifiablePresentation')
-    presentation = {
-      ...presentation,
-      '@context': presentationContext,
-      type: presentationType,
-    }
+    const { holder, credentialIds, proofFormat } = request;
 
-    if (!isDefined(presentation.holder)) {
-      throw new Error('invalid_argument: presentation.holder must not be empty')
-    }
+    const credentials: VerifiableCredential[] = await context.agent.getVerifiableCredentials({
+      holder,
+      credentialIds,
+    });
 
-    if (presentation.verifiableCredential) {
-      presentation.verifiableCredential = presentation.verifiableCredential.map((cred) => {
-        // map JWT credentials to their canonical form
-        if (typeof cred !== 'string' && cred.proof.jwt) {
-          return cred.proof.jwt
-        } else {
-          return cred
-        }
-      });
-    }
+    const presentationPayload: PresentationPayload = {
+      holder,
+      verifiableCredential: credentials.map((credential) => ({
+        id: credential.id,
+        credentialSchema: credential.credentialSchema,
+        type: credential.type,
+        '@context': credential['@context'],
+        issuanceDate: credential.issuanceDate,
+        issuer: credential.issuer,
+        credentialSubject: {
+          you: credential.credentialSubject.you,
+        },
+        credentialStatus: credential.credentialStatus,
+        proof: credential.proof
+      })),
+    };
 
-    const holder = removeDIDParameters(presentation.holder)
+    const verifiablePresentation = await context.agent.createVerifiablePresentation({
+      presentation: presentationPayload,
+      proofFormat: proofFormat || 'jwt',
+      fetchRemoteContexts: true,
+    });
 
-    let identifier: IIdentifier
-    try {
-      identifier = await context.agent.didManagerGet({ did: holder })
-    } catch (e) {
-      throw new Error('invalid_argument: presentation.holder must be a DID managed by this agent')
-    }
-    const key = pickSigningKey(identifier, keyRef)
-
-    let verifiablePresentation: VerifiablePresentation
-
-    if (proofFormat === 'lds') {
-      if (typeof context.agent.createVerifiablePresentationLD === 'function') {
-        verifiablePresentation = await context.agent.createVerifiablePresentationLD({ ...args, presentation })
-      } else {
-        throw new Error(
-          'invalid_setup: your agent does not seem to have ICredentialIssuerLD plugin installed',
-        )
-      }
-    } else if (proofFormat === 'EthereumEip712Signature2021') {
-      if (typeof context.agent.createVerifiablePresentationEIP712 === 'function') {
-        verifiablePresentation = await context.agent.createVerifiablePresentationEIP712({
-          ...args,
-          presentation,
-        })
-      } else {
-        throw new Error(
-          'invalid_setup: your agent does not seem to have ICredentialIssuerEIP712 plugin installed',
-        )
-      }
-    } else if (proofFormat === 'jwt') {
-      // only add issuanceDate for JWT
-      now = typeof now === 'number' ? new Date(now * 1000) : now
-      if (!Object.getOwnPropertyNames(presentation).includes('issuanceDate')) {
-        presentation.issuanceDate = (now instanceof Date ? now : new Date()).toISOString()
-      }
-
-      // debug('Signing VP with', identifier.did)
-      const alg = pickAlgorithm(key.type);
-
-      const signer = wrapSigner(context, key, alg)
-      const jwt = await createVerifiablePresentationJwt(
-        presentation as any,
-        { did: identifier.did, signer, alg },
-        { removeOriginalFields, challenge, domain, ...otherOptions },
-      )
-      //FIXME: flagging this as a potential privacy leak.
-      // debug(jwt)
-      console.log(11111, normalizePresentation(jwt));
-
-      verifiablePresentation = normalizePresentation(jwt)
-    } else {
-      throw new Error('invalid_argument: Unknown proofFormat type.');
-    }
-    // if (save) {
-    //   await context.agent.dataStoreSaveVerifiablePresentation({ verifiablePresentation })
-    // }
-    return verifiablePresentation
+    return verifiablePresentation;
   }
 
-  public async verifyPresentation(args: IVerifyPresentationArgs, context: VerifierAgentContext): Promise<IVerifyResult> {
+  public async verifyVerifiablePresentation(
+    args: IVerifyPresentationArgs,
+    context: VerifierAgentContext,
+  ): Promise<IVerifyResult> {
     let { presentation, domain, challenge, fetchRemoteContexts, policies, ...otherOptions } = args
     const type: DocumentFormat = detectDocumentType(presentation)
     if (type === DocumentFormat.JWT) {
