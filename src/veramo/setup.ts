@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 // Core interfaces
 import {
   createAgent,
@@ -26,36 +27,63 @@ import { DIDResolverPlugin } from '@veramo/did-resolver'
 import { Resolver } from 'did-resolver'
 import { getResolver as ethrDidResolver } from 'ethr-did-resolver'
 import { getResolver as webDidResolver } from 'web-did-resolver'
-
 // Storage plugin using TypeOrm
-import { Entities, KeyStore, DIDStore, PrivateKeyStore, migrations, DataStore, DataStoreORM } from '@veramo/data-store'
+import { DataStoreORM } from '@veramo/data-store'
+import { SelectiveDisclosure, ISelectiveDisclosure } from '@veramo/selective-disclosure';
+import { CredentialStatusPlugin } from '@veramo/credential-status';
 // TypeORM is installed with `@veramo/data-store`
 import { DataSource } from 'typeorm'
 
-import { SelectiveDisclosure, ISelectiveDisclosure } from '@veramo/selective-disclosure';
+import { EnhancedAgentPlugin, IEnhancedAgentPlugin } from './plugins/enhanced-agent';
+// import { DataStorageAgentPlugin } from './plugins/data-storage-agent.ts';
 
-import { EnhancedAgentPlugin, IEnhancedAgentPlugin } from './plugins/enhanced-agent.ts';
+import { DIDStore } from './data-storage/did-store.ts';
+import { KeyStore } from './data-storage/key-store.ts';
+import { PrivateKeyStore } from './data-storage/private-key-store.ts';
+
+import { Key } from './entities/key';
+import { Identifier } from './entities/identifier';
+import { Message } from './entities/message';
+import { Claim } from './entities/claim';
+import { Presentation } from './entities/presentation';
+import { Service } from './entities/service';
+import { PrivateKey } from './entities/private-key';
+import { PreMigrationKey } from './entities/pre-migration-key';
+import { Credential } from './entities/credential.ts';
+import { DataStorageAgentPlugin } from './plugins/data-storage-agent.ts';
 
 // ========= ENV =========
 // This will be the name for the local sqlite database for demo purposes
-const DATABASE_FILE = 'database.sqlite'
+const DATABASE_FILE = 'database-3.sqlite'
 // You will need to get a project ID from infura https://www.infura.io
-const INFURA_PROJECT_ID = ''
-// const INFURA_PROJECT_ID = ''
+const INFURA_PROJECT_ID = '8eedf26328a04375be8ed88c14b8ad37'
+// const INFURA_PROJECT_ID = '3586660d179141e3801c3895de1c2eba'
 // This will be the secret key for the KMS (replace this with your secret key)
-// const KMS_SECRET_KEY = '';
-const KMS_SECRET_KEY = '';
+// const KMS_SECRET_KEY = 'tnVnLxXLI6UQcFaw7K2j0Pcoa5ip7UhlNB135SlWQVuzkwQ6UljI2Q';
+const KMS_SECRET_KEY = '11b574d316903ced6cc3f4787bbcc3047d9c72d1da4d83e36fe714ef785d10c1';
 // ========= ENV =========
+
+const entities = [
+  Key,
+  Identifier,
+  Message,
+  Claim,
+  Credential,
+  Presentation,
+  Service,
+  PrivateKey,
+  PreMigrationKey,
+];
 
 const dbConnection = new DataSource({
   type: 'sqlite',
   database: DATABASE_FILE,
-  synchronize: false,
-  migrations,
-  migrationsRun: true,
+  synchronize: true,
+  // migrations,
+  // migrationsRun: true,
   // logging: ['error', 'info', 'warn'],
   logging: true,
-  entities: Entities,
+  entities,
 }).initialize();
 
 export const agent = createAgent<
@@ -77,7 +105,7 @@ export const agent = createAgent<
         local: new KeyManagementSystem(new PrivateKeyStore(dbConnection, new SecretBox(KMS_SECRET_KEY))),
       },
     }),
-    new DataStore(dbConnection),
+    new DataStorageAgentPlugin(dbConnection),
     new DataStoreORM(dbConnection),
     new DIDManager({
       store: new DIDStore(dbConnection),
@@ -107,6 +135,15 @@ export const agent = createAgent<
     }),
     new CredentialPlugin(),
     new SelectiveDisclosure(),
-    new EnhancedAgentPlugin(),
+    new CredentialStatusPlugin({
+      RevocationList2020Status: async (credential, didDocument) => {
+        console.log('RevocationList2020Status', didDocument);
+        // -- TODO -- check revocation
+        return {
+          revoked: true,
+        };
+      },
+    }),
+    new EnhancedAgentPlugin({ dbConnection }),
   ],
 });

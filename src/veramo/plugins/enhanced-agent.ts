@@ -2,10 +2,12 @@ import {
   ContextType,
   CredentialStatusReference,
   DateType,
+  DIDResolutionOptions,
   IAgentContext,
   IAgentPlugin,
   ICreateVerifiablePresentationArgs,
   ICredentialPlugin,
+  ICredentialStatusVerifier,
   IIdentifier,
   IKey,
   IKeyManager,
@@ -16,6 +18,7 @@ import {
   ProofFormat,
   VerifiableCredential,
   VerifiablePresentation,
+  VerificationPolicies,
   VerifierAgentContext,
   W3CVerifiableCredential,
   W3CVerifiablePresentation,
@@ -35,12 +38,13 @@ import {
   isDefined,
   MANDATORY_CREDENTIAL_CONTEXT,
   processEntryToArray,
+  OrPromise,
 } from '@veramo/utils'
 import { v4 as uuidv4 } from 'uuid';
+import { DataSource } from "typeorm";
 
 import { JsonSchemaValidator } from '../lib/json-schema-validator.ts';
-
-const SERVER = 'http://localhost:3000';
+import { createCredentialEntity, Credential } from "../entities/credential";
 
 const byteEncoder = new TextEncoder();
 
@@ -121,17 +125,38 @@ async function loadJsonLd(url: string) {
   }
 }
 
+async function isRevoked(
+  credential: VerifiableCredential,
+  context: IAgentContext<ICredentialStatusVerifier>,
+): Promise<boolean> {
+  if (!credential.credentialStatus) return false
+
+  if (typeof context.agent.checkCredentialStatus === 'function') {
+    const status = await context.agent.checkCredentialStatus({ credential })
+    return status?.revoked == true || status?.verified === false
+  }
+
+  throw new Error(
+    `invalid_setup: The credential status can't be verified because there is no ICredentialStatusVerifier plugin installed.`,
+  )
+}
+
+async function getConnectedDb(dbConnection: OrPromise<DataSource>): Promise<DataSource> {
+  if (dbConnection instanceof Promise) {
+    return await dbConnection
+  }
+  if (!dbConnection.isInitialized) {
+    return await (<DataSource>dbConnection).initialize();
+  }
+  return dbConnection;
+}
+
 type IssuerType = { id: string;[x: string]: any }
 type CredentialSubject = {
   [x: string]: any
 }
 
-/**
- * Used as input when creating Verifiable Credentials
- *
- * @beta This API may change without prior notice.
- */
-export interface CredentialPayload {
+interface CredentialPayload {
   issuer: IssuerType;
   credentialSubject: CredentialSubject;
   type?: string[]
@@ -165,11 +190,18 @@ interface IRevocationResult {
 }
 
 interface IVerifyCredentialRequest {
-  credential: VerifiableCredential
+  credential: VerifiableCredential;
+  policies?: VerificationPolicies;
+  resolutionOptions?: DIDResolutionOptions;
 }
 
-interface IVerifyCredentialResponse {
+interface IStoreVerifiableCredentialRequest {
+  verifiableCredential: VerifiableCredential;
+}
 
+interface IStoreVerifiableCredentialResponse {
+  id: string;
+  hash: string;
 }
 
 export interface IEnhancedAgentPlugin extends IPluginMethodMap {
@@ -184,7 +216,11 @@ export interface IEnhancedAgentPlugin extends IPluginMethodMap {
   verifyVerifiableCredential: (
     request: IVerifyCredentialRequest,
     context: IAgentContext<ICredentialPlugin>,
-  ) => Promise<IVerifyCredentialResponse>;
+  ) => Promise<IVerifyResult>;
+  storeVerifiableCredential: (
+    request: IStoreVerifiableCredentialRequest,
+    context: IAgentContext<ICredentialPlugin>,
+  ) => Promise<IStoreVerifiableCredentialResponse>;
   // createVP: (
   //   args: ICreateVerifiablePresentationArgs,
   //   context: IssuerAgentContext,
@@ -197,12 +233,16 @@ export interface IEnhancedAgentPlugin extends IPluginMethodMap {
 
 export class EnhancedAgentPlugin implements IAgentPlugin {
   readonly methods: IEnhancedAgentPlugin;
+  private dbConnection: OrPromise<DataSource>;
 
-  constructor() {
+  constructor({ dbConnection }: { dbConnection: OrPromise<DataSource> }) {
+    this.dbConnection = dbConnection;
+
     this.methods = {
       issueVerifiableCredential: this.issueVerifiableCredential.bind(this),
       revokeVerifiableCredential: this.revokeVerifiableCredential.bind(this),
       verifyVerifiableCredential: this.verifyVerifiableCredential.bind(this),
+      storeVerifiableCredential: this.storeVerifiableCredential.bind(this),
       // createVP: this.createVerifiablePresentation.bind(this),
       // verifyVC: this.verifyCredential.bind(this),
       // verifyVP: this.verifyPresentation.bind(this),
@@ -234,7 +274,7 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     // for checking revocation
     const credentialStatus = {
       ...credential.credentialStatus,
-      id: `${SERVER}/revocation/${credentialId}`,
+      id: credentialId,
       type: 'RevocationList2020Status',
     };
 
@@ -261,8 +301,6 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
       fetchRemoteContexts: true,
     });
 
-    // -- TODO -- save to db with holder
-
     return verifiableCredential;
   }
 
@@ -280,14 +318,15 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
   public async verifyVerifiableCredential(
     request: IVerifyCredentialRequest,
     context: IAgentContext<ICredentialPlugin>,
-  ): Promise<IVerifyCredentialResponse> {
+  ): Promise<IVerifyResult> {
     let {
       credential,
       policies,
-      ...otherOptions
+      resolutionOptions,
+      // ...otherOptions
     } = request
-    let verifiedCredential: VerifiableCredential
-    let verificationResult: IVerifyResult = { verified: false }
+    let verifiedCredential: VerifiableCredential;
+    let verificationResult: IVerifyResult = { verified: false };
 
     const type: DocumentFormat = detectDocumentType(credential)
     if (type == DocumentFormat.JWT) {
@@ -297,13 +336,13 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
         resolve: (didUrl: string) =>
           context.agent.resolveDid({
             didUrl,
-            options: otherOptions?.resolutionOptions,
+            options: resolutionOptions,
           }),
       } as Resolvable
       try {
         // needs broader credential as well to check equivalence with jwt
         verificationResult = await verifyCredentialJWT(jwt, resolver, {
-          ...otherOptions,
+          // ...otherOptions,
           policies: {
             ...policies,
             nbf: policies?.nbf ?? policies?.issuanceDate,
@@ -347,7 +386,7 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
       }
 
       try {
-        const result = await context.agent.verifyCredentialEIP712(args)
+        const result = await context.agent.verifyCredentialEIP712(request)
         if (result) {
           verificationResult = {
             verified: true,
@@ -371,35 +410,50 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
             message,
             errorCode: errorCode ? errorCode : e.message.split(':')[0],
           },
-        }
+        };
       }
     } else if (type == DocumentFormat.JSONLD) {
       if (typeof context.agent.verifyCredentialLD !== 'function') {
         throw new Error(
           'invalid_setup: your agent does not seem to have ICredentialIssuerLD plugin installed',
-        )
+        );
       }
 
-      verificationResult = await context.agent.verifyCredentialLD({ ...args, now: policies?.now })
+      verificationResult = await context.agent.verifyCredentialLD({ ...request });
       verifiedCredential = <VerifiableCredential>credential
     } else if (type == DocumentFormat.BBS) {
-      // return 
+      // -- TODO -- verify with BBS
+      verifiedCredential = {} as any;
       verificationResult.verified = true;
     } else {
       throw new Error('invalid_argument: Unknown credential type.')
     }
 
-    // if (policies?.credentialStatus !== false && (await isRevoked(verifiedCredential, context as any))) {
-    //   verificationResult = {
-    //     verified: false,
-    //     error: {
-    //       message: 'revoked: The credential was revoked by the issuer',
-    //       errorCode: 'revoked',
-    //     },
-    //   }
-    // }
+    if (policies?.credentialStatus !== false && (await isRevoked(verifiedCredential, context as any))) {
+      verificationResult = {
+        verified: false,
+        error: {
+          message: 'revoked: The credential was revoked by the issuer',
+          errorCode: 'revoked',
+        },
+      }
+    }
 
-    return verificationResult
+    return verificationResult;
+  }
+
+  public async storeVerifiableCredential(
+    request: IStoreVerifiableCredentialRequest,
+    context: IAgentContext<ICredentialPlugin>,
+  ): Promise<IStoreVerifiableCredentialResponse> {
+    const connection = await getConnectedDb(this.dbConnection);
+    const verifiableCredential = await connection
+      .getRepository(Credential)
+      .save(createCredentialEntity(request.verifiableCredential));
+    return {
+      id: verifiableCredential.id || '',
+      hash: verifiableCredential.hash,
+    };
   }
 
   async createVerifiablePresentation(
