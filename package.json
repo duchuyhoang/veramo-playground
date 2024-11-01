@@ -11,6 +11,7 @@
   "scripts": {
     "start": "tsx ./src/index.ts",
     "l-i": "tsx ./src/list-identifiers.ts",
+    "c-s": "tsx ./src/create-schema.ts",
     "c-i": "tsx ./src/create-identifier.ts",
     "c-c": "tsx ./src/create-credential.ts",
     "v-c": "tsx ./src/verify-credential.ts",
