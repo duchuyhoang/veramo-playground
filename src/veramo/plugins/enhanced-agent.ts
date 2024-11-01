@@ -187,6 +187,71 @@ interface IIssueVerifiablePresentation {
   proofFormat?: ProofFormat;
 }
 
+type FieldAttribute =
+  | "text"
+  | "email"
+  | "number"
+  | "boolean"
+  | "uri"
+  | "date"
+  | "dateTime";
+
+const FieldConfigs: Record<
+  FieldAttribute,
+  {
+    type: string;
+    format?: string;
+    pattern?: string;
+  }
+> = {
+  text: {
+    type: "string",
+  },
+  email: {
+    type: "string",
+    format: "email",
+  },
+  number: {
+    type: "number",
+  },
+  dateTime: {
+    type: "string",
+    pattern:
+      "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})?$",
+    format: "date-time",
+  },
+  date: {
+    type: "string",
+    format: "date",
+    pattern: "^\\d{4}-\\d{2}-\\d{2}$",
+  },
+  uri: {
+    type: "string",
+    format: "uri",
+  },
+  boolean: {
+    type: "boolean",
+  },
+};
+
+function camelize(str: string) {
+  return str
+    .replace(/(?:^\w|[A-Z]|\b\w)/g, function (word, index) {
+      return index === 0 ? word.toLowerCase() : word.toUpperCase();
+    })
+    .replace(/\s+/g, "");
+}
+
+interface ICreateSchemaRequest {
+  title: string;
+  description?: string;
+  fields: Array<{
+    name: string;
+    type: FieldAttribute;
+    description?: string;
+    required?: boolean;
+  }>;
+}
 export interface IEnhancedAgentPlugin extends IPluginMethodMap {
   issueVerifiableCredential: (
     request: IIssueCredentialRequest,
@@ -208,6 +273,10 @@ export interface IEnhancedAgentPlugin extends IPluginMethodMap {
     request: IVerifyPresentationArgs,
     context: VerifierAgentContext,
   ) => Promise<IVerifyResult>;
+  createSchema: (
+    request: ICreateSchemaRequest,
+    context: IAgentContext<ICredentialPlugin>
+  ) => Promise<any>;
 }
 
 export class EnhancedAgentPlugin implements IAgentPlugin {
@@ -223,6 +292,7 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
       verifyVerifiableCredential: this.verifyVerifiableCredential.bind(this),
       issueVerifiablePresentation: this.issueVerifiablePresentation.bind(this),
       verifyVerifiablePresentation: this.verifyVerifiablePresentation.bind(this),
+      createSchema: this.createSchema.bind(this),
     };
   }
 
@@ -591,5 +661,78 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
         )
       }
     }
+  }
+
+  public async createSchema(
+    request: ICreateSchemaRequest,
+    context: IAgentContext<ICredentialPlugin>
+  ) {
+    const schema = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      title: request.title,
+      description: request.description || "",
+      // "@context": ["https://www.w3.org/2018/credentials/v1"],
+      // type: "VerifiableCredential",
+      // credentialSchema: {
+      //   id: "https://example.org/schemas/custom-schema",
+      //   type: "JsonSchemaValidator2018",
+      // },
+
+      properties: {
+        "@context": {
+          oneOf: [
+            {
+              type: "string",
+            },
+            {
+              type: "array",
+            },
+          ],
+        },
+        credentialSubject: {
+          required: [
+            ...request.fields.reduce(
+              (prev, cur) => [
+                ...prev,
+                ...(!!cur.required ? [camelize(cur.name)] : []),
+              ],
+              [] as Array<string>
+            ),
+          ],
+          properties: request.fields.reduce(
+            (prev, { name, type, description, required }, index) => ({
+              ...prev,
+              [camelize(name)]: {
+                order: index,
+                // title: camelize(name),
+                // description: description,
+                optional: !required,
+                ...FieldConfigs[type],
+              },
+            }),
+            {}
+          ),
+        },
+      },
+      required: ["@context", "credentialSubject"],
+
+      // dateCreated: new Date().toISOString(),
+      // fields: request.fields.reduce(
+      //   (prev, { name, type, description, required }, index) => ({
+      //     ...prev,
+      //     [camelize(name)]: {
+      //       order: index,
+      //       title: camelize(name),
+      //       description: description,
+      //       optional: !required,
+      //       ...FieldConfigs[type],
+      //     },
+      //   }),
+      //   {}
+      // ),
+
+      // "@context": ["https://www.w3.org/2018/credentials/v1"],
+    };
+    return schema;
   }
 }

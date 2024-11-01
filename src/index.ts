@@ -1,9 +1,8 @@
 // import { IIdentifier } from '@veramo/core';
-import { agent } from './veramo/setup.ts'
+import { agent } from "./veramo/setup.ts";
 
 // export interface VeramoProvider {
 //   deriveVerifiableCredential(credential): Promise<any>;
-
 
 //   transferVerifiableCredential(credential): Promise<any>;
 
@@ -13,13 +12,15 @@ import { agent } from './veramo/setup.ts'
 // }
 
 async function getIdentifiers() {
-  const issuerAlias = 'issuer';
-  const holderAlias = 'holder';
+  const issuerAlias = "issuer";
+  const holderAlias = "holder";
 
   const [issuer, holder] = await Promise.all([
-    agent.didManagerGetByAlias({ alias: issuerAlias })
+    agent
+      .didManagerGetByAlias({ alias: issuerAlias })
       .catch(() => agent.didManagerCreate({ alias: issuerAlias })),
-    agent.didManagerGetByAlias({ alias: holderAlias })
+    agent
+      .didManagerGetByAlias({ alias: holderAlias })
       .catch(() => agent.didManagerCreate({ alias: holderAlias })),
   ]);
 
@@ -30,16 +31,20 @@ async function issueVC() {
   const { issuer, holder } = await getIdentifiers();
 
   const verifiableCredential = await agent.issueVerifiableCredential({
-    schemaUrl: 'https://schema.trinsic.cloud/dentity-dev/bronze',
+    schemaUrl: "http://localhost:3000/schema.json",
     holder: holder.did,
     credential: {
       issuer: { id: issuer.did },
-      type: ['Bronze'],
+      type: ["Bronze"],
       credentialSubject: {
-        credentialIssuer: "Twilio",
-        credentialType: "Verified Phone Number",
-        holderFullName: "daadda",
-        phoneNumber: "+1 (548) 554-3044",
+        nameHxxx: "2022-02-01",
+        age: "2024-11-01T13:45:30",
+        xxx: 20,
+
+        // credentialIssuer: "Twilio",
+        // credentialType: "Verified Phone Number",
+        // holderFullName: "daadda",
+        // phoneNumber: "+1 (548) 554-3044",
       },
       // expirationDate: '2024-10-31T00:00:00.000Z',
     },
@@ -50,10 +55,9 @@ async function issueVC() {
 async function verifyCredential(credentialId: string) {
   const vc = await agent.getVerifiableCredential({ credentialId });
   const result = await agent.verifyVerifiableCredential({
-    credential: vc
+    credential: vc,
   });
-  console.log('result', result);
-
+  console.log("result", result);
 }
 
 async function main() {
@@ -69,6 +73,8 @@ async function main() {
   
   
   // const credential = await issueVC();
+  const credential = await issueVC();
+  console.log(credential);
   // const record = await agent.storeVerifiableCredential({
   //   verifiableCredential: credential,
   // });
@@ -82,4 +88,4 @@ async function main() {
   // await agent.deleteVerifiableCredential({ credentialId: 'e1af4937-193d-4099-b5aa-577aa54fd432' });
 }
 
-main().catch(console.log)
+main().catch(console.log);
