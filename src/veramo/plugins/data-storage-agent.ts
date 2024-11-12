@@ -25,7 +25,7 @@ import { Claim } from '../entities/claim';
 import { createPresentationEntity } from '../entities/presentation';
 
 interface IGetVerifiableCredentialsRequest {
-  credentialIds: string[];
+  credentialIds?: string[];
   holder?: string;
 }
 
@@ -150,7 +150,7 @@ export class DataStorageAgentPlugin implements IAgentPlugin {
   ): Promise<VerifiableCredential[]> {
     const { credentialIds, holder } = request;
     const commonQuery = {
-      id: In(credentialIds),
+      id: credentialIds ? In(credentialIds) : undefined,
       revoked: false,
       subject: holder ? { did: holder } : undefined
     };
@@ -162,7 +162,7 @@ export class DataStorageAgentPlugin implements IAgentPlugin {
           { ...commonQuery, expirationDate: IsNull() },
         ],
       });
-    if (credentialEntities.length !== credentialIds.length) {
+    if (credentialIds && credentialEntities.length !== credentialIds.length) {
       throw new Error('not_found or revoked: Verifiable credentials not found or revoked');
     }
 

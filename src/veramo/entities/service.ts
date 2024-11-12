@@ -11,9 +11,9 @@ import { Identifier } from './identifier.ts'
  */
 @Entity('service')
 export class Service extends BaseEntity {
-  @PrimaryGeneratedColumn()
+  @PrimaryColumn({ type: 'varchar' })
   // @ts-ignore
-  id: string
+  id: string;
 
   @Column({ type: 'varchar' })
   // @ts-ignore

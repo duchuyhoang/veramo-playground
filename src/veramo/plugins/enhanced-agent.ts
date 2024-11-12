@@ -60,43 +60,6 @@ function detectDocumentType(document: W3CVerifiableCredential | W3CVerifiablePre
   return DocumentFormat.JSONLD
 }
 
-function pickSigningKey(identifier: IIdentifier, keyRef?: string): IKey {
-  let key: IKey | undefined
-
-  if (!keyRef) {
-    key = identifier.keys.find(
-      (k) => k.type === 'Secp256k1' || k.type === 'Ed25519' || k.type === 'Secp256r1',
-    )
-    if (!key) throw Error('key_not_found: No signing key for ' + identifier.did)
-  } else {
-    key = identifier.keys.find((k) => k.kid === keyRef)
-    if (!key) throw Error('key_not_found: No signing key for ' + identifier.did + ' with kid ' + keyRef)
-  }
-
-  return key as IKey
-}
-
-function pickAlgorithm(keyType: string) {
-  let alg = 'ES256K'
-  if (keyType === 'Ed25519') {
-    alg = 'EdDSA'
-  } else if (keyType === 'Secp256r1') {
-    alg = 'ES256'
-  }
-  return alg;
-}
-
-function wrapSigner(
-  context: IAgentContext<Pick<IKeyManager, 'keyManagerSign'>>,
-  key: IKey,
-  algorithm?: string,
-) {
-  return async (data: string | Uint8Array): Promise<string> => {
-    const result = await context.agent.keyManagerSign({ keyRef: key.kid, data: <string>data, algorithm })
-    return result
-  }
-}
-
 async function loadJsonLd(url: string) {
   try {
     // Fetch the JSON-LD document from the URL
