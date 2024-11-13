@@ -145,8 +145,9 @@ interface IVerifyCredentialRequest {
 }
 
 interface IIssueVerifiablePresentation {
+  verifier: string;
   holder: string;
-  credentialIds: string[];
+  credentials: VerifiableCredential[];
   proofFormat?: ProofFormat;
 }
 
@@ -484,15 +485,13 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     request: IIssueVerifiablePresentation,
     context: IAgentContext<ICredentialPlugin>,
   ): Promise<VerifiablePresentation> {
-    const { holder, credentialIds, proofFormat } = request;
+    const { holder, verifier, credentials, proofFormat } = request;
 
-    const credentials: VerifiableCredential[] = await context.agent.getVerifiableCredentials({
-      holder,
-      credentialIds,
-    });
-
+    const presentationId = uuidv4();
     const presentationPayload: PresentationPayload = {
+      id: presentationId,
       holder,
+      verifier: [verifier],
       verifiableCredential: credentials.map((credential) => ({
         id: credential.id,
         credentialSchema: credential.credentialSchema,
@@ -500,9 +499,7 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
         '@context': credential['@context'],
         issuanceDate: credential.issuanceDate,
         issuer: credential.issuer,
-        credentialSubject: {
-          you: credential.credentialSubject.you,
-        },
+        credentialSubject: {},
         credentialStatus: credential.credentialStatus,
         proof: credential.proof
       })),

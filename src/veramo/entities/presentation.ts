@@ -62,7 +62,7 @@ export class Presentation extends BaseEntity {
   verifier?: Relation<Identifier[]>;
 
   @Column({ type: 'varchar' })
-  id?: String;
+  id?: string;
 
   @Column({ type: 'datetime' })
   // @ts-ignore

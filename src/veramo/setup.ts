@@ -167,13 +167,7 @@ export const agent = createAgent<
         // ...ethrDidResolver({ infuraProjectId: INFURA_PROJECT_ID }),
         // ...webDidResolver(),
         ethr: ethrDidResolver({
-          // infuraProjectId: INFURA_PROJECT_ID,
-          networks: [
-            {
-              name: "sepolia",
-              rpcUrl: "https://sepolia.infura.io/v3/" + INFURA_PROJECT_ID,
-            },
-          ],
+          infuraProjectId: INFURA_PROJECT_ID,
         }).ethr,
         // ethr: ethrDidResolver({
         //   networks: [

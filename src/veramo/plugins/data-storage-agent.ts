@@ -13,7 +13,7 @@ import {
   VerifiablePresentation,
 } from '@veramo/core-types';
 import { schema } from '@veramo/core-types';
-import { Message, Presentation } from '@veramo/data-store';
+import { Message } from '@veramo/data-store';
 import { OrPromise } from '@veramo/utils';
 import { IPluginMethodMap } from '@veramo/core';
 import { DataSource, In, IsNull, MoreThan } from 'typeorm';
@@ -22,7 +22,7 @@ import { getConnectedDb } from '../data-storage/utils';
 import { createMessage, createMessageEntity } from '../entities/message';
 import { createCredentialEntity, Credential } from '../entities/credential';
 import { Claim } from '../entities/claim';
-import { createPresentationEntity } from '../entities/presentation';
+import { createPresentationEntity, Presentation } from '../entities/presentation';
 
 interface IGetVerifiableCredentialsRequest {
   credentialIds?: string[];
@@ -47,6 +47,16 @@ interface IDeleteVerifiableCredentialRequest {
   credentialId: string;
 }
 
+interface IStoreVerifiablePresentationRequest {
+  verifiablePresentation: VerifiablePresentation;
+}
+
+interface IStoreVerifiablePresentationResponse {
+  id: string;
+  hash: string;
+  verifierId: string;
+}
+
 
 export interface IDataStore extends IPluginMethodMap {
   getVerifiableCredentials: (request: IGetVerifiableCredentialsRequest) =>
@@ -59,7 +69,10 @@ export interface IDataStore extends IPluginMethodMap {
     Promise<IStoreVerifiableCredentialResponse>;
 
   deleteVerifiableCredential: (request: IDeleteVerifiableCredentialRequest) =>
-    Promise<boolean>
+    Promise<boolean>;
+
+  storeVerifiablePresentation: (request: IStoreVerifiablePresentationRequest) =>
+    Promise<IStoreVerifiablePresentationResponse>;
 
   // /**
   //  * Saves message to the data store
@@ -134,6 +147,7 @@ export class DataStorageAgentPlugin implements IAgentPlugin {
       getVerifiableCredential: this.getVerifiableCredential.bind(this),
       storeVerifiableCredential: this.storeVerifiableCredential.bind(this),
       deleteVerifiableCredential: this.deleteVerifiableCredential.bind(this),
+      storeVerifiablePresentation: this.storeVerifiablePresentation.bind(this),
       // dataStoreSaveMessage: this.dataStoreSaveMessage.bind(this),
       // dataStoreGetMessage: this.dataStoreGetMessage.bind(this),
       // dataStoreDeleteMessage: this.dataStoreDeleteMessage.bind(this),
@@ -215,6 +229,17 @@ export class DataStorageAgentPlugin implements IAgentPlugin {
     ]);
 
     return true;
+  }
+
+  async storeVerifiablePresentation(args: IStoreVerifiablePresentationRequest): Promise<IStoreVerifiablePresentationResponse> {
+    const verifiablePresentation = await (await getConnectedDb(this.dbConnection))
+      .getRepository(Presentation)
+      .save(createPresentationEntity(args.verifiablePresentation))
+    return {
+      id: verifiablePresentation.id || '',
+      hash: verifiablePresentation.hash,
+      verifierId: (verifiablePresentation.verifier || [])[0]?.did || '',
+    };
   }
 
   async dataStoreSaveMessage(args: IDataStoreSaveMessageArgs): Promise<string> {

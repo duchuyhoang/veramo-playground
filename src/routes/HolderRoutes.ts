@@ -1,6 +1,7 @@
 import express from 'express';
 import { responseSuccess } from '../response-handler';
 import { agent } from '../veramo/setup';
+import { ICredentialRequestInput } from '@veramo/selective-disclosure';
 
 const router = express.Router();
 
@@ -32,21 +33,40 @@ router
   })
   .post('/presentations/prove', async (req, res, next) => {
     try {
+      const verifier = req.body.verifier;
       const holder = req.body.holder;
       const payload = await agent.handleMessage({ raw: req.body.sdr });
-      const credentialsForSdr = await agent.getVerifiableCredentialsForSdr({
-        sdr: {
-          claims: (payload.data as any)?.claims as any || [],
-        }
-      });
+      const claims: ICredentialRequestInput[] = (payload.data as any)?.claims || [];
+      
+      const credentialsForSdr = await agent.getVerifiableCredentialsForSdr({ sdr: { claims } });
 
-      const credentials = credentialsForSdr.map((credentialForSdr) =>
-        credentialForSdr.credentials.filter((credential) => credential.verifiableCredential.credentialSubject.id === holder)
-      ).flat()
+      const verifiableCredentials = credentialsForSdr.map(
+        (credentialForSdr) =>
+          credentialForSdr
+            .credentials
+            .filter((credential) => credential.verifiableCredential.credentialSubject.id === holder)
+            .map((credential) => {
+              if (claims.length) {
+                const credentialSubject = claims.reduce((prevVal: { [key: string]: string }, claim) => {
+                  if (claim.claimType in credential.verifiableCredential) {
+                    prevVal[claim.claimType] = credential.verifiableCredential.credentialSubject[claim.claimType];
+                  }
+                  return prevVal;
+                }, {});
+                credential.verifiableCredential.credentialSubject = credentialSubject;
+              }
+              return credential.verifiableCredential;
+            })
+      ).flat();
+
+      if (!verifiableCredentials) {
+        throw new Error('Credential not found');
+      }
 
       const presentation = await agent.issueVerifiablePresentation({
-        holder: credentials[0].verifiableCredential.credentialSubject.id || '',
-        credentialIds: credentials.map((credential) => credential.verifiableCredential.id || ''),
+        verifier,
+        holder,
+        credentials: verifiableCredentials,
       })
       responseSuccess(res, presentation);
     } catch (error) {
@@ -55,7 +75,10 @@ router
   })
   .post('/presentations/present', async (req, res, next) => {
     try {
-
+      const record = await agent.storeVerifiablePresentation({
+        verifiablePresentation: req.body.presentation
+      });
+      responseSuccess(res, { id: record.id, hash: record.hash });
     } catch (error) {
       next(error);
     }
