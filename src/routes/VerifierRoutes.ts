@@ -16,7 +16,11 @@ router
   })
   .post('/presentations/verify', async (req, res, next) => {
     try {
-      const result = await agent.verifyPresentation({ presentation: req.body });
+      const presentation = req.body;
+      const result = await agent.verifyVerifiablePresentation({
+        presentation,
+        challenge: presentation.proof.challenge,
+      });
       responseSuccess(res, { verified: result.verified });
     } catch (error) {
       next(error);

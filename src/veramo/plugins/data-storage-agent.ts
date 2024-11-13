@@ -13,13 +13,12 @@ import {
   VerifiablePresentation,
 } from '@veramo/core-types';
 import { schema } from '@veramo/core-types';
-import { Message } from '@veramo/data-store';
 import { OrPromise } from '@veramo/utils';
 import { IPluginMethodMap } from '@veramo/core';
 import { DataSource, In, IsNull, MoreThan } from 'typeorm';
 
 import { getConnectedDb } from '../data-storage/utils';
-import { createMessage, createMessageEntity } from '../entities/message';
+import { createMessage, createMessageEntity, Message } from '../entities/message';
 import { createCredentialEntity, Credential } from '../entities/credential';
 import { Claim } from '../entities/claim';
 import { createPresentationEntity, Presentation } from '../entities/presentation';

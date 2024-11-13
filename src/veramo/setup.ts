@@ -14,7 +14,7 @@ import {
 import { DIDManager } from '@veramo/did-manager'
 // Ethr did identity provider
 import { EthrDIDProvider } from '@veramo/did-provider-ethr'
-import { WebDIDProvider } from "@veramo/did-provider-web";
+// import { WebDIDProvider } from "@veramo/did-provider-web";
 // // Ion did identity provider
 // import { IonDIDProvider } from '@veramo/did-provider-ion';
 // Core key manager plugin
@@ -28,26 +28,16 @@ import { DIDResolverPlugin } from '@veramo/did-resolver'
 import { Resolver } from 'did-resolver'
 import { getResolver as ethrDidResolver } from 'ethr-did-resolver'
 import { getResolver as webDidResolver } from 'web-did-resolver'
-// Storage plugin using TypeOrm
-import { DataStoreORM } from '@veramo/data-store'
 import { MessageHandler } from '@veramo/message-handler';
 import { JwtMessageHandler } from '@veramo/did-jwt';
 import { SelectiveDisclosure, ISelectiveDisclosure, SdrMessageHandler } from '@veramo/selective-disclosure';
 import { CredentialStatusPlugin } from '@veramo/credential-status';
 import { DIDCommMessageHandler, DIDComm, IDIDComm } from '@veramo/did-comm';
 import { UrlMessageHandler } from '@veramo/url-handler';
+import { getDidIonResolver, IonDIDProvider } from '@veramo/did-provider-ion';
+import { getDidKeyResolver, KeyDIDProvider } from '@veramo/did-provider-key';
+import { ICredentialIssuerLD, CredentialIssuerLD, LdDefaultContexts, VeramoEcdsaSecp256k1RecoverySignature2020, VeramoEd25519Signature2018 } from '@veramo/credential-ld';
 
-import {
-  AgentRouter,
-  ApiSchemaRouter,
-  WebDidDocRouter,
-  RequestWithAgentRouter,
-  createDefaultDid,
-  MessagingRouter,
-  apiKeyAuth,
-} from "@veramo/remote-server";
-
-// TypeORM is installed with `@veramo/data-store`
 import { DataSource } from 'typeorm'
 
 import { DataStorageAgentPlugin, IDataStore } from './plugins/data-storage-agent.ts';
@@ -69,8 +59,6 @@ import { Service } from './entities/service';
 import { PrivateKey } from './entities/private-key';
 import { PreMigrationKey } from './entities/pre-migration-key';
 import { Credential } from './entities/credential.ts';
-import { getDidIonResolver, IonDIDProvider } from '@veramo/did-provider-ion';
-import { getDidKeyResolver, KeyDIDProvider } from '@veramo/did-provider-key';
 import { DataStoreORMAgentPlugin } from './plugins/data-storage-orm-agent.ts';
 
 // ========= ENV =========
@@ -113,6 +101,7 @@ export const agent = createAgent<
   & IDataStoreORM
   & IResolver
   & ICredentialPlugin
+  & ICredentialIssuerLD
   & ICredentialIssuer
   & ICredentialVerifier
   & ISelectiveDisclosure
@@ -183,6 +172,10 @@ export const agent = createAgent<
       }),
     }),
     new CredentialPlugin(),
+    new CredentialIssuerLD({
+      contextMaps: [LdDefaultContexts],
+      suites: [new VeramoEd25519Signature2018(), new VeramoEcdsaSecp256k1RecoverySignature2020()],
+    }),
     new SelectiveDisclosure(),
     new CredentialStatusPlugin({
       RevocationList2020Status: checkCredentialRevocation.bind(this, dbConnection),

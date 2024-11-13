@@ -13,6 +13,7 @@ router
       const schemaUrl = body.schemaUrl;
       const credentialSubject = body.credentialSubject;
       const expirationDate = body.expirationDate;
+      const proofFormat = body.proofFormat;
 
       await Promise.all([
         agent.didManagerGet({ did: issuerDID }),
@@ -28,6 +29,7 @@ router
           credentialSubject,
           expirationDate: expirationDate ? new Date(expirationDate).toJSON() : undefined,
         },
+        proofFormat,
       });
       return responseSuccess(res, verifiableCredential);
     } catch (error) {

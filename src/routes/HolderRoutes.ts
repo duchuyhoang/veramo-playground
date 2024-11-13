@@ -35,6 +35,8 @@ router
     try {
       const verifier = req.body.verifier;
       const holder = req.body.holder;
+      const proofFormat = req.body.proofFormat;
+      const challenge = req.body.challenge;
       const payload = await agent.handleMessage({ raw: req.body.sdr });
       const claims: ICredentialRequestInput[] = (payload.data as any)?.claims || [];
       
@@ -48,7 +50,7 @@ router
             .map((credential) => {
               if (claims.length) {
                 const credentialSubject = claims.reduce((prevVal: { [key: string]: string }, claim) => {
-                  if (claim.claimType in credential.verifiableCredential) {
+                  if (claim.claimType in credential.verifiableCredential.credentialSubject) {
                     prevVal[claim.claimType] = credential.verifiableCredential.credentialSubject[claim.claimType];
                   }
                   return prevVal;
@@ -66,6 +68,8 @@ router
       const presentation = await agent.issueVerifiablePresentation({
         verifier,
         holder,
+        proofFormat,
+        challenge,
         credentials: verifiableCredentials,
       })
       responseSuccess(res, presentation);

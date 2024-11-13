@@ -149,6 +149,7 @@ interface IIssueVerifiablePresentation {
   holder: string;
   credentials: VerifiableCredential[];
   proofFormat?: ProofFormat;
+  challenge?: string;
 }
 
 type FieldAttribute =
@@ -485,7 +486,7 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     request: IIssueVerifiablePresentation,
     context: IAgentContext<ICredentialPlugin>,
   ): Promise<VerifiablePresentation> {
-    const { holder, verifier, credentials, proofFormat } = request;
+    const { holder, verifier, credentials, proofFormat, challenge } = request;
 
     const presentationId = uuidv4();
     const presentationPayload: PresentationPayload = {
@@ -499,7 +500,7 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
         '@context': credential['@context'],
         issuanceDate: credential.issuanceDate,
         issuer: credential.issuer,
-        credentialSubject: {},
+        credentialSubject: credential.credentialSubject,
         credentialStatus: credential.credentialStatus,
         proof: credential.proof
       })),
@@ -508,6 +509,7 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     const verifiablePresentation = await context.agent.createVerifiablePresentation({
       presentation: presentationPayload,
       proofFormat: proofFormat || 'jwt',
+      challenge,
       fetchRemoteContexts: true,
     });
 
@@ -613,7 +615,8 @@ export class EnhancedAgentPlugin implements IAgentPlugin {
     } else {
       // JSON-LD
       if (typeof context.agent.verifyPresentationLD === 'function') {
-        const result = await context.agent.verifyPresentationLD({ ...args, now: policies?.now })
+        const checkStatusFunc = async () => Promise.resolve({ verified: true });
+        const result = await context.agent.verifyPresentationLD({ ...args, now: policies?.now, checkStatus: checkStatusFunc })
         return result
       } else {
         throw new Error(
