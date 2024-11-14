@@ -1,7 +1,8 @@
 import express from 'express';
 import bodyParser from 'body-parser';
 import swagger from 'swagger-ui-express';
-// import swaggerDocument from './public/openapi.json';
+import path from 'path';
+import swaggerDocument from './public/openapi.json';
 import { errorHandler, notFoundHandler } from './response-handler';
 import identifierRoutes from './routes/IdentifierRoutes';
 import issuerRoutes from './routes/IssuerRoutes';
@@ -22,8 +23,14 @@ app.use('/holders', holderRoutes);
 app.use('/verifiers', verifierRoutes);
 
 // WWW Routes
-app.use('/schemas', express.static('src/public', { extensions: ['json'] }));
-// app.use('/docs', swagger.serveFiles(swaggerDocument), swagger.setup(swaggerDocument));
+app.use('/schemas', (req, res, next) => {
+  const extname = path.extname(req.url);
+  if (extname === '.json') {
+    return express.static(path.join('src', 'public'))(req, res, next);
+  }
+  res.status(403).send('Forbidden: Only JSON files are allowed');
+});
+app.use('/docs', swagger.serveFiles(swaggerDocument), swagger.setup(swaggerDocument));
 
 app.use(notFoundHandler);
 app.use(errorHandler);
